@@ -1,0 +1,13 @@
+fastapi
+sqlalchemy
+pydantic
+yfinance
+requests
+beautifulsoup4
+psycopg2-binary
+cloudinary
+python-dotenv
+aiohttp
+apscheduler
+firebase-admin
+uvicorn
