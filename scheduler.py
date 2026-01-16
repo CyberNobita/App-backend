@@ -3,7 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, messaging
 import time
 import asyncio
-from .market_data import CACHE, OPENING_PRICES
+from market_data import CACHE, OPENING_PRICES
 
 # Global State for Scheduler
 LAST_KNOWN_PRICES = {"rh": 0, "pd": 0, "pt": 0}
@@ -83,3 +83,4 @@ def start_scheduler():
     scheduler.add_job(check_prices_job, "interval", minutes=10)
     scheduler.start()
     print("✅ Scheduler Started (10 min cycle)")
+
