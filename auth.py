@@ -5,8 +5,8 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from .database import get_db
-from .models import UserDB
+from database import get_db
+from models import UserDB
 
 import os
 from dotenv import load_dotenv
@@ -44,3 +44,4 @@ async def get_current_admin(current_user: UserDB = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin Access Only")
     return current_user
+
