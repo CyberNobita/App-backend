@@ -11,3 +11,6 @@ aiohttp
 apscheduler
 firebase-admin
 uvicorn
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
