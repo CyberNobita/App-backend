@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
-from .database import Base
+from database import Base
 from datetime import datetime
 
 class UserDB(Base):
@@ -40,3 +40,4 @@ class AppConfig(Base):
     factor_calculator = Column(Float, default=1.0) 
     factor_converter = Column(Float, default=1.0)
     factor_market = Column(Float, default=1.0)
+
