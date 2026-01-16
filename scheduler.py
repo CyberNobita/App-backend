@@ -3,7 +3,9 @@ import firebase_admin
 from firebase_admin import credentials, messaging
 import time
 import asyncio
-from market_data import CACHE, OPENING_PRICES
+import os   # <--- Added
+import json # <--- Added
+from market_data import CACHE, OPENING_PRICES # (Maine dot hata diya relative import ka)
 
 # Global State for Scheduler
 LAST_KNOWN_PRICES = {"rh": 0, "pd": 0, "pt": 0}
@@ -11,19 +13,37 @@ LAST_ALERT_TIME = {"rh": 0, "pd": 0, "pt": 0}
 ALERT_COOLDOWN = 4 * 3600  # 4 Hours
 
 def init_firebase():
+    # Check agar app pehle se initialized hai toh wapis mat karo
+    if firebase_admin._apps:
+        return
+
     try:
-        if not firebase_admin._apps:
+        # 1. Pehle Environment Variable Check karo (Render ke liye)
+        firebase_env = os.getenv("FIREBASE_CREDENTIALS")
+        
+        if firebase_env:
+            # Render Logic
+            cred_dict = json.loads(firebase_env)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("✅ Scheduler: Firebase Initialized from Env Var")
+        
+        # 2. Agar Env nahi mila, toh Local File dhoondo (Laptop ke liye)
+        elif os.path.exists("firebase_credentials.json"):
             cred = credentials.Certificate("firebase_credentials.json")
             firebase_admin.initialize_app(cred)
-            print("✅ Firebase Initialized")
+            print("✅ Scheduler: Firebase Initialized from Local File")
+            
+        else:
+            print("⚠️ Scheduler Warning: Firebase Credentials NOT FOUND")
+
     except Exception as e:
-        print(f"⚠️ Firebase Init Error (Check 'firebase_credentials.json'): {e}")
+        print(f"⚠️ Firebase Init Error: {e}")
 
 async def check_prices_job():
     print("⏰ [Scheduler] Checking Prices for Alerts...")
     
-    # We rely on market_data.py to update CACHE, or we could scrape here.
-    # Using CACHE is safer to avoid double-scraping bans.
+    # We rely on market_data.py to update CACHE
     current_prices = CACHE.get('pgm_prices', {})
     
     for metal, price in current_prices.items():
@@ -54,16 +74,6 @@ async def check_prices_job():
                 LAST_ALERT_TIME[metal] = time.time()
                 LAST_KNOWN_PRICES[metal] = price
                 print(f"🚀 Alert Sent: {title}")
-        
-        # Always update last known? No, logic says "Compare current with last known". 
-        # If we update continuously, slow creep won't trigger. 
-        # But if we don't update, a persistent 2% shift will trigger every 4 hours. 
-        # User Logic: "If Price Change > 2% ... Check last_alert_time ... If > 4 hours ... send"
-        # Implies we trigger ONCE for the shift.
-        # I'll update LAST_KNOWN only when Alert is sent OR maybe reset daily?
-        # Let's update LAST_KNOWN only on Alert to capture "Change since last alert". 
-        # Wait, if price drops 1%, then another 1%, total 2%. We should capture that.
-        # So we KEEP old price until 2% barrier crossed.
 
 async def send_fcm_alert(title, body):
     try:
@@ -83,4 +93,3 @@ def start_scheduler():
     scheduler.add_job(check_prices_job, "interval", minutes=10)
     scheduler.start()
     print("✅ Scheduler Started (10 min cycle)")
-
