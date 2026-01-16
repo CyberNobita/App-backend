@@ -24,11 +24,11 @@ cloudinary.config(
 )
 
 # Imports
-from .database import engine, get_db, Base
-from .models import UserDB, ConverterDB, AppConfig
-from .schemas import UserCreate, Token, NewConverter, CalcReq, ConfigUpdate
-from .auth import get_password_hash, verify_password, create_access_token, get_current_admin
-from .market_data import update_market_data, CACHE
+from database import engine, get_db, Base
+from models import UserDB, ConverterDB, AppConfig
+from schemas import UserCreate, Token, NewConverter, CalcReq, ConfigUpdate
+from auth import get_password_hash, verify_password, create_access_token, get_current_admin
+from market_data import update_market_data, CACHE
 
 # Init DB
 Base.metadata.create_all(bind=engine)
@@ -330,4 +330,5 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
