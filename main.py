@@ -34,7 +34,15 @@ from .market_data import update_market_data, CACHE
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-app = FastAPI()
+is_production = os.getenv("RENDER") 
+
+app = FastAPI(
+    # Agar Production (Render) pe hain toh Docs mat dikhao, warna dikhao
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json"
+)
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR = "static/images"
@@ -322,3 +330,4 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
