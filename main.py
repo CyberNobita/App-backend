@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -23,17 +23,21 @@ cloudinary.config(
   secure = True
 )
 
-# Imports
+# Imports (Dots Removed as requested)
 from database import engine, get_db, Base
 from models import UserDB, ConverterDB, AppConfig
 from schemas import UserCreate, Token, NewConverter, CalcReq, ConfigUpdate
 from auth import get_password_hash, verify_password, create_access_token, get_current_admin
 from market_data import update_market_data, CACHE
+from scheduler import start_scheduler
+from email_service import send_otp_email, generate_otp  # Added from Code 2
+from firebase_admin import messaging
 
 # Init DB
 Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# --- 🔥 PRODUCTION CONFIG (From Code 1) ---
 is_production = os.getenv("RENDER") 
 
 app = FastAPI(
@@ -49,14 +53,11 @@ UPLOAD_DIR = "static/images"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-
 # --- 🧠 HELPER: GET CONFIG ---
 def get_app_config(db: Session):
     return db.query(AppConfig).first()
 
 # --- 🧠 CENTRAL CALCULATION LOGIC ---
-# Updated to support specific Interest Rates per metal
 def calculate_payout_logic(weight, pt, pd, rh, currency, db: Session, margin_override=None, days_override=None, factor_override=None, custom_usd=0.0):
     
     # 1. DB se Config Uthao
@@ -66,8 +67,7 @@ def calculate_payout_logic(weight, pt, pd, rh, currency, db: Session, margin_ove
     c_margin = margin_override if margin_override is not None else conf.default_margin
     c_days = days_override if days_override is not None else conf.default_days_out
     
-    # 3. Market Factor (Default from Config unless overridden)
-    # Search ke liye Converter Factor use hoga, Calculator ke liye User ya Calc Factor
+    # 3. Market Factor
     c_factor = factor_override if factor_override is not None else conf.factor_converter
 
     # 4. Prices Fetch & Factor Apply
@@ -88,13 +88,12 @@ def calculate_payout_logic(weight, pt, pd, rh, currency, db: Session, margin_ove
     val_pd = oz_pd * price_pd
     val_rh = oz_rh * price_rh
     
-    # 6. Apply Margin Individual (Payout before interest)
+    # 6. Apply Margin Individual
     payout_pt = val_pt * (c_margin / 100)
     payout_pd = val_pd * (c_margin / 100)
     payout_rh = val_rh * (c_margin / 100)
 
     # 7. 🔥 APPLY SPECIFIC INTEREST RATES 🔥
-    # Har metal ka apna rate database se aayega
     int_pt = 0.0; int_pd = 0.0; int_rh = 0.0
 
     if c_days > 0:
@@ -136,18 +135,16 @@ def update_config_api(c: ConfigUpdate, db: Session = Depends(get_db), user: str 
     db.commit()
     return {"success": True}
 
-# --- 🔍 SEARCH API (Uses Converter Factor) ---
+# --- 🔍 SEARCH API ---
 @app.get("/converters/search")
 def search(q: str = "", currency: str = "USD", db: Session = Depends(get_db)):
     query = db.query(ConverterDB)
     if q: query = query.filter(or_(ConverterDB.serial.ilike(f"%{q}%"), ConverterDB.brand.ilike(f"%{q}%")))
     
-    # 1. Fetch Config for Defaults
     conf = get_app_config(db)
     
     res = []
     for item in query.all():
-        # 2. Calculate using Config defaults (Margin 82%, Days 120, etc.)
         calc = calculate_payout_logic(
             item.weight_kg, item.pt_ppm, item.pd_ppm, item.rh_ppm, currency, db,
             margin_override=conf.default_margin,
@@ -165,7 +162,6 @@ def search(q: str = "", currency: str = "USD", db: Session = Depends(get_db)):
 # --- 🧮 CALCULATOR API ---
 class CalculatorRequest(BaseModel):
     weight: float; pt_ppm: float; pd_ppm: float; rh_ppm: float; currency: str = "USD"
-    # Overrides allowed, but if null, DB defaults used
     margin_percent: float = None; days_out: int = None
     use_custom_price: bool = False; custom_pt: float=0; custom_pd: float=0; custom_rh: float=0; custom_usd: float=0
 
@@ -174,14 +170,12 @@ def calculate_manual(req: CalculatorRequest, db: Session = Depends(get_db)):
     if req.use_custom_price:
         conf = get_app_config(db)
         
-        # 1. Setup Parameters
         c_margin = req.margin_percent if req.margin_percent is not None else conf.default_margin
         c_days = req.days_out if req.days_out is not None else conf.default_days_out
         
         raw_data = CACHE.get('data', {}).get('raw', {})
         usd_rate = req.custom_usd if req.custom_usd > 0.1 else raw_data.get("usd_rate", 86.5)
 
-        # 2. Math: Grams -> Ounces -> Value -> Margin
         # Pt
         grams_pt = (req.pt_ppm / 1000) * req.weight
         val_pt = (grams_pt / 31.1035) * req.custom_pt
@@ -197,7 +191,7 @@ def calculate_manual(req: CalculatorRequest, db: Session = Depends(get_db)):
         val_rh = (grams_rh / 31.1035) * req.custom_rh
         payout_rh = val_rh * (c_margin / 100)
 
-        # 3. Interest Deduction (Specific Rates)
+        # Interest
         int_pt = 0.0; int_pd = 0.0; int_rh = 0.0
         if c_days > 0:
             int_pt = payout_pt * (conf.interest_pt / 100) * (c_days / 365)
@@ -207,7 +201,6 @@ def calculate_manual(req: CalculatorRequest, db: Session = Depends(get_db)):
         total_interest = int_pt + int_pd + int_rh
         final_payout_usd = (payout_pt + payout_pd + payout_rh) - total_interest
 
-        # 4. Currency Conversion
         if req.currency == "INR":
             final_payout_usd *= usd_rate
             total_interest *= usd_rate
@@ -225,7 +218,6 @@ def calculate_manual(req: CalculatorRequest, db: Session = Depends(get_db)):
         }
     
     else:
-        # Fetch Config to check Calculator Factor
         conf = get_app_config(db)
         
         calc = calculate_payout_logic(
@@ -239,13 +231,12 @@ def calculate_manual(req: CalculatorRequest, db: Session = Depends(get_db)):
             "is_custom": False
         }
 
-# --- 📈 LIVE RATES API (Applies Market Factor) ---
+# --- 📈 LIVE RATES API ---
 @app.get("/live_rates")
 def get_rates(db: Session = Depends(get_db)):
     conf = get_app_config(db)
-    factor = conf.factor_market # e.g. 0.98 or 1.0
+    factor = conf.factor_market 
     
-    # Deep copy to avoid messing up cache
     original_data = CACHE["data"]
     response_data = {
         "metals": [], "energy": original_data.get("energy", []), 
@@ -253,24 +244,19 @@ def get_rates(db: Session = Depends(get_db)):
         "ai_insight": original_data.get("ai_insight", {})
     }
     
-    # Apply Factor to Metals Only
     for m in original_data.get("metals", []):
         new_m = m.copy()
-        # Apply factor ONLY to PGM scraped data, not everything if you want
         if m['name'] in ["Platinum", "Palladium", "Rhodium"]:
             new_m['price'] = m['price'] * factor
         response_data['metals'].append(new_m)
         
     return response_data
 
-from scheduler import start_scheduler
-from firebase_admin import messaging
-
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(update_market_data())
-    start_scheduler() # Start the alert scheduler
-    # 🔥 Initialize Defaults if not present
+    start_scheduler() 
+    # Initialize Defaults
     db = SessionLocal()
     if not db.query(AppConfig).first():
         db.add(AppConfig(id=1))
@@ -283,7 +269,6 @@ class TokenReq(BaseModel):
 @app.post("/update-token")
 def update_token(req: TokenReq):
     try:
-        # Subscribe to topic 'all_users'
         response = messaging.subscribe_to_topic([req.token], "all_users")
         print(f"Subscribed token: {response.success_count} success")
         return {"success": True}
@@ -291,13 +276,47 @@ def update_token(req: TokenReq):
         print(f"Token Sub Error: {e}")
         return {"success": False, "error": str(e)}
 
-# --- AUTH & ADMIN (Standard) ---
+# --- AUTH & ADMIN ---
 @app.post("/auth/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     role = "admin" if db.query(UserDB).count() == 0 else "user"
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role=role)); db.commit()
     return {"msg": "Registered", "role": role}
+
+# --- 🔥 OTP VERIFICATION (From Code 2) ---
+# 🧠 Temporary RAM Storage for OTPs
+pending_otps = {} 
+
+@app.post("/auth/send-otp")
+async def send_otp(email: str, db: Session = Depends(get_db)):
+    # Step A: Check if registered
+    existing_user = db.query(UserDB).filter(UserDB.email == email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered. Please Login.")
+    
+    # Step B: Generate & Store
+    otp = generate_otp()
+    pending_otps[email] = otp 
+    print(f"OTP for {email}: {otp}") 
+    
+    # Step C: Send Email
+    await send_otp_email(email, otp)
+    return {"message": "OTP sent successfully"}
+
+@app.post("/auth/verify-otp")
+async def verify_otp(email: str, otp_input: str):
+    # Check Memory
+    if email not in pending_otps:
+        raise HTTPException(status_code=400, detail="OTP expired or not requested.")
+    
+    stored_otp = pending_otps[email]
+    
+    if stored_otp == otp_input:
+        del pending_otps[email] # Clear Memory
+        return {"message": "Email Verified Successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
 
 @app.post("/auth/login")
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -307,7 +326,6 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 @app.post("/admin/add_converter")
 def add_conv(serial: str = Form(...), brand: str = Form(...), weight_kg: float = Form(...), pt_ppm: float = Form(...), pd_ppm: float = Form(...), rh_ppm: float = Form(...), image: UploadFile = File(...), db: Session = Depends(get_db), u: str = Depends(get_current_admin)):
-    # Cloudinary Upload
     try:
         res = cloudinary.uploader.upload(image.file, folder="converters")
         image_url = res.get("secure_url")
@@ -330,6 +348,3 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
-
-
-
