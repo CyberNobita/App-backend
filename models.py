@@ -8,7 +8,9 @@ class UserDB(Base):
     full_name = Column(String)
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
-    role = Column(String, default="user") # 'admin' or 'user'
+    role = Column(String, default="user") # 'admin' or 'user' 
+    otp = Column(String, nullable=True)         # OTP store karne ke liye
+    is_verified = Column(Boolean, default=False) # Check karne ke liye verify hua ya nahi
 
 class ConverterDB(Base):
     __tablename__ = "converters"
@@ -40,4 +42,5 @@ class AppConfig(Base):
     factor_calculator = Column(Float, default=1.0) 
     factor_converter = Column(Float, default=1.0)
     factor_market = Column(Float, default=1.0)
+
 
