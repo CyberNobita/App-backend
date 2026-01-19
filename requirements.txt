@@ -15,5 +15,4 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 fastapi-mail
-python-3.11.8
 email-validator
