@@ -255,7 +255,7 @@ def get_rates(db: Session = Depends(get_db)):
         
     return response_data
 
-from .scheduler import start_scheduler
+from scheduler import start_scheduler
 from firebase_admin import messaging
 
 @app.on_event("startup")
@@ -410,4 +410,5 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
