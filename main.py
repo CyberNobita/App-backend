@@ -292,7 +292,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     return {"msg": "Registered", "role": role}
 
 # --- OTP VERIFICATION (In-Memory) ---
-from .email_service import send_otp_email, generate_otp
+from email_service import send_otp_email, generate_otp
 from pydantic import EmailStr
 
 # 🧠 Temporary RAM Storage for OTPs
@@ -410,5 +410,6 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
 
