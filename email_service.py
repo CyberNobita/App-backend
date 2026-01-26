@@ -1,30 +1,33 @@
 import os
+import random
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from dotenv import load_dotenv
 from pydantic import EmailStr
 
-# .env load karna zaroori hai
+# .env file load karo
 load_dotenv()
 
-# Zoho Configuration
+# ✅ Zoho Configuration
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("SMTP_USER"),
     MAIL_PASSWORD=os.getenv("SMTP_PASS"),
     MAIL_FROM=os.getenv("SMTP_FROM"),
     MAIL_PORT=465,
     MAIL_SERVER="smtp.zoho.in",    # Agar .in na chale toh .com try karna
-    MAIL_STARTTLS=False,           # SSL use kar rahe hain isliye False
-    MAIL_SSL_TLS=True,             # Port 465 ke liye True
+    MAIL_STARTTLS=False,
+    MAIL_SSL_TLS=True,
     USE_CREDENTIALS=True,
     VALIDATE_CERTS=True
 )
 
+# ✅ Function 1: OTP Generate Karna (Jo tera main.py maang raha hai)
+def generate_otp():
+    return str(random.randint(100000, 999999))
+
+# ✅ Function 2: Email Bhejna (Async)
 async def send_otp_email(email_to: EmailStr, otp: str):
-    """
-    Sends OTP email with Dark Theme (Black & Neon Green)
-    """
     
-    # 🌑 DARK THEME HTML TEMPLATE
+    # 🌑 DARK THEME HTML TEMPLATE (Professional Look)
     html_content = f"""
     <!DOCTYPE html>
     <html>
