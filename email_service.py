@@ -12,12 +12,13 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("SMTP_USER"),
     MAIL_PASSWORD=os.getenv("SMTP_PASS"),
     MAIL_FROM=os.getenv("SMTP_FROM"),
-    MAIL_PORT=465,
+    MAIL_PORT=587,
     MAIL_SERVER="smtp.zoho.com",    # Agar .in na chale toh .com try karna
-    MAIL_STARTTLS=False,
-    MAIL_SSL_TLS=True,
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False,
     USE_CREDENTIALS=True,
     VALIDATE_CERTS=True
+    TIMEOUT=60
 )
 
 # ✅ Function 1: OTP Generate Karna (Jo tera main.py maang raha hai)
