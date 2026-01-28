@@ -294,39 +294,113 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 # --- OTP VERIFICATION (In-Memory) ---
 from email_service import send_otp_email, generate_otp
 from pydantic import EmailStr
+from datetime import datetime # 👈 Ye import zaroor check kar lena upar
 
-# 🧠 Temporary RAM Storage for OTPs
-pending_otps = {} 
+# --- Request Schemas (Body ke liye) ---
+class OTPRequest(BaseModel):
+    email: EmailStr
+    full_name: str = "User" # Optional
 
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+# 👉 1. SEND OTP API (Database + Resend Logic)
 @app.post("/auth/send-otp")
-async def send_otp(email: str, db: Session = Depends(get_db)):
-    # Step A: Check if registered (For Sign-Up flow, we assume we want NEW users)
-    existing_user = db.query(UserDB).filter(UserDB.email == email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered. Please Login.")
+async def send_otp(req: OTPRequest, db: Session = Depends(get_db)):
+    email = req.email.lower()
+    current_time = datetime.utcnow()
     
-    # Step B: Generate & Store
-    otp = generate_otp()
-    pending_otps[email] = otp 
-    print(f"OTP for {email}: {otp}") 
-    
-    # Step C: Send Email
-    await send_otp_email(email, otp)
-    return {"message": "OTP sent successfully"}
+    # Check User in DB
+    user = db.query(UserDB).filter(UserDB.email == email).first()
 
-@app.post("/auth/verify-otp")
-async def verify_otp(email: str, otp_input: str):
-    # Check Memory
-    if email not in pending_otps:
-        raise HTTPException(status_code=400, detail="OTP expired or not requested.")
-    
-    stored_otp = pending_otps[email]
-    
-    if stored_otp == otp_input:
-        del pending_otps[email] # Clear Memory
-        return {"message": "Email Verified Successfully"}
+    # SCENARIO: User Pehle se DB mein hai
+    if user:
+        # Case A: Agar Password set hai -> Matlab Account poora hai -> Error "Login karo"
+        if user.hashed_password:
+             raise HTTPException(status_code=400, detail="Email already registered. Please Login.")
+        
+        # Case B: Password nahi hai -> "Ghost User" -> Resend Logic chalega
+        
+        # --- ⏳ RESEND TIME LOGIC ---
+        if user.otp_created_at:
+            time_diff = (current_time - user.otp_created_at).total_seconds() / 60 # Minutes
+            
+            # Logic: Pehli baar resend kar raha hai -> 1 min rukna padega
+            if user.otp_attempts == 1 and time_diff < 1:
+                wait_sec = int(60 - (time_diff * 60))
+                raise HTTPException(status_code=429, detail=f"Please wait {wait_sec} seconds before resending.")
+            
+            # Logic: 2 se zyada baar -> 5 min rukna padega
+            elif 2 <= user.otp_attempts < 5 and time_diff < 5:
+                raise HTTPException(status_code=429, detail="Please wait 5 minutes before resending.")
+            
+            # Logic: Spamming (5+ attempts) -> 30 min Block
+            elif user.otp_attempts >= 5:
+                if time_diff < 30:
+                    raise HTTPException(status_code=429, detail="Too many attempts. Try again after 30 minutes.")
+                else:
+                    user.otp_attempts = 0 # Reset block
+
+        # --- UPDATE USER (Naya OTP set karo) ---
+        otp = generate_otp()
+        user.otp = otp
+        user.otp_created_at = current_time
+        user.otp_attempts += 1
+        db.commit() # Database update
+        
+        await send_otp_email(email, otp)
+        return {"message": "OTP sent successfully"}
+
     else:
+        # SCENARIO: Naya User (Create New Row)
+        otp = generate_otp()
+        new_user = UserDB(
+            email=email,
+            full_name=req.full_name,
+            otp=otp,
+            otp_created_at=current_time,
+            otp_attempts=1,
+            is_verified=False,
+            role="user"
+        )
+        db.add(new_user)
+        db.commit()
+        
+        await send_otp_email(email, otp)
+        return {"message": "OTP sent successfully"}
+
+
+# 👉 2. VERIFY OTP API (Database Check)
+@app.post("/auth/verify-otp")
+async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
+    email = req.email.lower()
+    otp_input = req.otp.strip()
+    current_time = datetime.utcnow()
+
+    # DB se user nikalo
+    user = db.query(UserDB).filter(UserDB.email == email).first()
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found or OTP expired.")
+
+    # 1. Match OTP
+    if user.otp != otp_input:
         raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # 2. Check Expiry (10 Minutes)
+    if user.otp_created_at:
+        time_diff = (current_time - user.otp_created_at).total_seconds() / 60
+        if time_diff > 10:
+             raise HTTPException(status_code=400, detail="OTP Expired. Please request a new one.")
+
+    # ✅ Success
+    user.is_verified = True
+    user.otp = None         # OTP delete kar do security ke liye
+    user.otp_attempts = 0   # Attempts reset kar do
+    db.commit()             # Save changes
+
+    return {"message": "Email Verified Successfully"}
 
 @app.post("/auth/login")
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -410,6 +484,7 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
 
 
