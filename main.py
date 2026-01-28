@@ -373,9 +373,11 @@ async def send_otp(email: str, full_name: str = "User", db: Session = Depends(ge
 
 # 👉 2. VERIFY OTP API (Database Check)
 @app.post("/auth/verify-otp")
-async def verify_otp(email: str, otp: str, db: Session = Depends(get_db)):
-    email = email.lower()
-    otp_input = otp.strip()
+async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
+    # Note: Humne wapas 'req: VerifyOTPRequest' laga diya hai
+    
+    email = req.email.lower()
+    otp_input = req.otp.strip()
     current_time = datetime.utcnow()
 
     # DB se user nikalo
@@ -396,7 +398,7 @@ async def verify_otp(email: str, otp: str, db: Session = Depends(get_db)):
 
     # ✅ Success
     user.is_verified = True
-    user.otp = None         # OTP delete kar do security ke liye
+    user.otp = None         # Security: OTP uda do
     user.otp_attempts = 0   # Attempts reset kar do
     db.commit()             # Save changes
 
@@ -484,6 +486,7 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
 
 
