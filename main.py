@@ -320,6 +320,47 @@ async def send_otp(email: str, full_name: str = "User", db: Session = Depends(ge
         await send_otp_email(email, otp)
         return {"message": "OTP sent successfully"}
 
+@app.post("/auth/forgot-password-otp")
+async def forgot_password_otp(email: str, db: Session = Depends(get_db)):
+    email = email.lower()
+    current_time = datetime.utcnow()
+    
+    # 1. Check User
+    user = db.query(UserDB).filter(UserDB.email == email).first()
+
+    # Agar User nahi hai -> Error
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found with this email.")
+
+    # Agar User hai par Signup poora nahi kiya (Ghost User) -> Error
+    if not user.hashed_password:
+        raise HTTPException(status_code=400, detail="Account incomplete. Please Sign Up first.")
+
+    # 2. Resend Time Logic (Wahi same logic)
+    if user.otp_created_at:
+        time_diff = (current_time - user.otp_created_at).total_seconds() / 60
+        
+        if user.otp_attempts == 1 and time_diff < 1:
+            wait_sec = int(60 - (time_diff * 60))
+            raise HTTPException(status_code=429, detail=f"Please wait {wait_sec} seconds before resending.")
+        elif 2 <= user.otp_attempts < 5 and time_diff < 5:
+            raise HTTPException(status_code=429, detail="Please wait 5 minutes before resending.")
+        elif user.otp_attempts >= 5:
+            if time_diff < 30:
+                raise HTTPException(status_code=429, detail="Too many attempts. Try again after 30 minutes.")
+            else:
+                user.otp_attempts = 0
+
+    # 3. Send OTP
+    otp = generate_otp()
+    user.otp = otp
+    user.otp_created_at = current_time
+    user.otp_attempts += 1
+    db.commit()
+    
+    await send_otp_email(email, otp)
+    return {"message": "OTP sent to your email."}
+
 
 # 👉 2. VERIFY OTP API
 @app.post("/auth/verify-otp")
@@ -533,3 +574,4 @@ async def update_profile(
         "message": "Profile updated successfully", 
         "name": current_user.full_name
     }
+
