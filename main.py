@@ -307,8 +307,8 @@ class VerifyOTPRequest(BaseModel):
 
 # 👉 1. SEND OTP API (Database + Resend Logic)
 @app.post("/auth/send-otp")
-async def send_otp(req: OTPRequest, db: Session = Depends(get_db)):
-    email = req.email.lower()
+async def send_otp(email: str, full_name: str = "User", db: Session = Depends(get_db)):
+    email = email.lower()
     current_time = datetime.utcnow()
     
     # Check User in DB
@@ -484,6 +484,7 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
 
 
