@@ -1,34 +1,23 @@
 import os
 import random
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
+import resend
 from dotenv import load_dotenv
-from pydantic import EmailStr
 
 # .env file load karo
 load_dotenv()
 
-# ✅ Zoho Configuration
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("SMTP_USER"),
-    MAIL_PASSWORD=os.getenv("SMTP_PASS"),
-    MAIL_FROM=os.getenv("SMTP_FROM"),
-    MAIL_PORT=587,
-    MAIL_SERVER="smtp.zoho.com",    # Agar .in na chale toh .com try karna
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-    TIMEOUT=60
-)
+# ✅ Resend API Configuration
+# .env se key uthayega
+resend.api_key = os.getenv("RESEND_API_KEY")
 
-# ✅ Function 1: OTP Generate Karna (Jo tera main.py maang raha hai)
+# ✅ Function 1: OTP Generate Karna (Tera same function)
 def generate_otp():
     return str(random.randint(100000, 999999))
 
-# ✅ Function 2: Email Bhejna (Async)
-async def send_otp_email(email_to: EmailStr, otp: str):
+# ✅ Function 2: Email Bhejna (Latest Resend API Method)
+async def send_otp_email(email_to: str, otp: str):
     
-    # 🌑 DARK THEME HTML TEMPLATE (Professional Look)
+    # 🌑 DARK THEME HTML TEMPLATE (Tera Wala Same Professional Look)
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -77,19 +66,20 @@ async def send_otp_email(email_to: EmailStr, otp: str):
     </html>
     """
 
-    message = MessageSchema(
-        subject="🔐 SB PGM Verification Code",
-        recipients=[email_to],
-        body=html_content,
-        subtype=MessageType.html
-    )
-
-    fm = FastMail(conf)
-    
     try:
-        await fm.send_message(message)
-        print(f"✅ OTP Sent to {email_to}")
+        # Resend API call (Bahut Fast hai)
+        params = {
+            "from": "SB PGM <noreply@sbpgm.com>",  # Agar domain verify nahi hai toh ye use kar
+            # "from": "Support <support@sbpgm.com>",   # Jab domain verify ho jaye tab ye khol dena
+            "to": [email_to],
+            "subject": "🔐 SB PGM Verification Code",
+            "html": html_content,
+        }
+
+        email = resend.Emails.send(params)
+        print(f"✅ OTP Sent via Resend to {email_to}")
         return True
+
     except Exception as e:
-        print(f"❌ Error sending email: {e}")
+        print(f"❌ Error sending email via Resend: {e}")
         return False
