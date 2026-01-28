@@ -11,7 +11,9 @@ class UserDB(Base):
     role = Column(String, default="user") # 'admin' or 'user' 
     otp = Column(String, nullable=True)         # OTP store karne ke liye
     is_verified = Column(Boolean, default=False) # Check karne ke liye verify hua ya nahi
-
+    otp_created_at = Column(DateTime, nullable=True) # Time track karne ke liye
+    otp_attempts = Column(Integer, default=0)
+    
 class ConverterDB(Base):
     __tablename__ = "converters"
     id = Column(Integer, primary_key=True, index=True)
@@ -42,5 +44,6 @@ class AppConfig(Base):
     factor_calculator = Column(Float, default=1.0) 
     factor_converter = Column(Float, default=1.0)
     factor_market = Column(Float, default=1.0)
+
 
 
