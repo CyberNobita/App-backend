@@ -357,7 +357,7 @@ async def send_otp(email: str, full_name: str = "User", db: Session = Depends(ge
         otp = generate_otp()
         new_user = UserDB(
             email=email,
-            full_name=req.full_name,
+            full_name=full_name,
             otp=otp,
             otp_created_at=current_time,
             otp_attempts=1,
@@ -484,6 +484,7 @@ def create_adm(user: UserCreate, db: Session = Depends(get_db), u: str = Depends
     if db.query(UserDB).filter(UserDB.email == user.email).first(): raise HTTPException(400, "Taken")
     db.add(UserDB(full_name=user.full_name, email=user.email, hashed_password=get_password_hash(user.password), role="admin")); db.commit()
     return {"success": True}
+
 
 
 
