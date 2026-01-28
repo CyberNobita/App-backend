@@ -10,9 +10,9 @@ class UserDB(Base):
     hashed_password = Column(String)
     role = Column(String, default="user") # 'admin' or 'user' 
     otp = Column(String, nullable=True)         # OTP store karne ke liye
-    is_verified = Column(Boolean, default=False) # Check karne ke liye verify hua ya nahi
-    otp_created_at = Column(DateTime, nullable=True) # Time track karne ke liye
+    is_verified = Column(Boolean, default=False) # Check karne ke liye verify hua ya nahi.
     otp_attempts = Column(Integer, default=0)
+    otp_created_at = Column(DateTime, nullable=True)
     
 class ConverterDB(Base):
     __tablename__ = "converters"
@@ -44,6 +44,7 @@ class AppConfig(Base):
     factor_calculator = Column(Float, default=1.0) 
     factor_converter = Column(Float, default=1.0)
     factor_market = Column(Float, default=1.0)
+
 
 
 
