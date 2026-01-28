@@ -355,7 +355,7 @@ async def forgot_password_otp(email: str, db: Session = Depends(get_db)):
     otp = generate_otp()
     user.otp = otp
     user.otp_created_at = current_time
-    user.otp_attempts += 1
+    user.otp_attempts = current_attempts + 1
     db.commit()
     
     await send_otp_email(email, otp)
@@ -574,4 +574,5 @@ async def update_profile(
         "message": "Profile updated successfully", 
         "name": current_user.full_name
     }
+
 
