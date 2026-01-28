@@ -17,4 +17,4 @@ python-multipart
 fastapi-mail
 email-validator
 google-auth
-
+resend
