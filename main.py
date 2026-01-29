@@ -17,20 +17,24 @@ import secrets
 
 # Cloudinary Config (From Env)
 load_dotenv()
-cloudinary.config( 
-  cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"), 
-  api_key = os.getenv("CLOUDINARY_API_KEY"), 
+cloudinary.config(
+  cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"),
+  api_key = os.getenv("CLOUDINARY_API_KEY"),
   api_secret = os.getenv("CLOUDINARY_API_SECRET"),
   secure = True
 )
 
-# Imports (Fixed: Added get_current_user)
+# Imports
 from database import engine, get_db, Base
 from models import UserDB, ConverterDB, AppConfig
 from schemas import UserCreate, Token, NewConverter, CalcReq, ConfigUpdate
 from auth import get_password_hash, verify_password, create_access_token, get_current_admin, get_current_user
 from market_data import update_market_data, CACHE
-from email_service import send_otp_email, generate_otp 
+from email_service import send_otp_email, generate_otp
+
+# 🔥 NEW ADDITION: Password Context for checks in main.py
+from passlib.context import CryptContext
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Init DB
 Base.metadata.create_all(bind=engine)
@@ -277,23 +281,27 @@ async def send_otp(email: str, full_name: str = "User", db: Session = Depends(ge
              raise HTTPException(status_code=400, detail="Email already registered. Please Login.")
         
         # Resend Logic for Ghost Users
+        # 🔥 FIX: Handle NoneType for attempts
+        current_attempts = user.otp_attempts if user.otp_attempts is not None else 0
+
         if user.otp_created_at:
             time_diff = (current_time - user.otp_created_at).total_seconds() / 60
-            if user.otp_attempts == 1 and time_diff < 1:
+            if current_attempts == 1 and time_diff < 1:
                 wait_sec = int(60 - (time_diff * 60))
                 raise HTTPException(status_code=429, detail=f"Please wait {wait_sec} seconds before resending.")
-            elif 2 <= user.otp_attempts < 5 and time_diff < 5:
+            elif 2 <= current_attempts < 5 and time_diff < 5:
                 raise HTTPException(status_code=429, detail="Please wait 5 minutes before resending.")
-            elif user.otp_attempts >= 5:
+            elif current_attempts >= 5:
                 if time_diff < 30:
                     raise HTTPException(status_code=429, detail="Too many attempts. Try again after 30 minutes.")
                 else:
-                    user.otp_attempts = 0
+                    current_attempts = 0 # Reset locally
 
         otp = generate_otp()
         user.otp = otp
         user.otp_created_at = current_time
-        user.otp_attempts += 1
+        # 🔥 FIX: Increment safely
+        user.otp_attempts = current_attempts + 1
         db.commit()
         
         await send_otp_email(email, otp)
@@ -336,26 +344,30 @@ async def forgot_password_otp(email: str, db: Session = Depends(get_db)):
     if not user.hashed_password:
         raise HTTPException(status_code=400, detail="Account incomplete. Please Sign Up first.")
 
+    # 🔥 FIX: Handle NoneType for attempts
+    current_attempts = user.otp_attempts if user.otp_attempts is not None else 0
+
     # 2. Resend Time Logic (Wahi same logic)
     if user.otp_created_at:
         time_diff = (current_time - user.otp_created_at).total_seconds() / 60
         
-        if user.otp_attempts == 1 and time_diff < 1:
+        if current_attempts == 1 and time_diff < 1:
             wait_sec = int(60 - (time_diff * 60))
             raise HTTPException(status_code=429, detail=f"Please wait {wait_sec} seconds before resending.")
-        elif 2 <= user.otp_attempts < 5 and time_diff < 5:
+        elif 2 <= current_attempts < 5 and time_diff < 5:
             raise HTTPException(status_code=429, detail="Please wait 5 minutes before resending.")
-        elif user.otp_attempts >= 5:
+        elif current_attempts >= 5:
             if time_diff < 30:
                 raise HTTPException(status_code=429, detail="Too many attempts. Try again after 30 minutes.")
             else:
-                user.otp_attempts = 0
+                current_attempts = 0 # Reset locally
 
     # 3. Send OTP
     otp = generate_otp()
     user.otp = otp
     user.otp_created_at = current_time
-    user.otp_attempts += 1
+    # 🔥 FIX: Increment safely
+    user.otp_attempts = current_attempts + 1
     db.commit()
     
     await send_otp_email(email, otp)
@@ -385,7 +397,7 @@ async def verify_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
     user.is_verified = True
     user.otp = None         
     user.otp_attempts = 0   
-    db.commit()             
+    db.commit()              
 
     return {"message": "Email Verified Successfully. Please set your password."}
 
@@ -435,7 +447,11 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
         time_diff = (current_time - user.otp_created_at).total_seconds() / 60
         if time_diff > 10:
             raise HTTPException(status_code=400, detail="OTP Expired. Please request a new one.")
-
+    
+    # 🔥 FIX: Now pwd_context is defined, so this won't crash
+    if pwd_context.verify(req.new_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="New password cannot be the same as the old password.")
+     
     user.hashed_password = get_password_hash(req.new_password)
     user.otp = None
     user.otp_attempts = 0
@@ -574,6 +590,3 @@ async def update_profile(
         "message": "Profile updated successfully", 
         "name": current_user.full_name
     }
-
-
-
