@@ -448,7 +448,7 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
         if time_diff > 10:
             raise HTTPException(status_code=400, detail="OTP Expired. Please request a new one.")
     
-   try:
+    try:
         if user.hashed_password and pwd_context.verify(req.new_password, user.hashed_password):
             raise HTTPException(status_code=400, detail="New password cannot be the same as the old password.")
     except HTTPException as he:
@@ -595,4 +595,5 @@ async def update_profile(
         "message": "Profile updated successfully", 
         "name": current_user.full_name
     }
+
 
