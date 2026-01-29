@@ -448,10 +448,15 @@ async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db
         if time_diff > 10:
             raise HTTPException(status_code=400, detail="OTP Expired. Please request a new one.")
     
-    # 🔥 FIX: Now pwd_context is defined, so this won't crash
-    if pwd_context.verify(req.new_password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="New password cannot be the same as the old password.")
-     
+   try:
+        if user.hashed_password and pwd_context.verify(req.new_password, user.hashed_password):
+            raise HTTPException(status_code=400, detail="New password cannot be the same as the old password.")
+    except HTTPException as he:
+        raise he  # Agar "Same Password" wala error hai, toh usse dikhao
+    except Exception:
+        pass  # Agar "UnknownHashError" aya, toh ignore karo (User ko reset karne do)
+    # 🔥 CRASH FIX END
+
     user.hashed_password = get_password_hash(req.new_password)
     user.otp = None
     user.otp_attempts = 0
@@ -590,3 +595,4 @@ async def update_profile(
         "message": "Profile updated successfully", 
         "name": current_user.full_name
     }
+
